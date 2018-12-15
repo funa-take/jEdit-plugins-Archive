@@ -622,11 +622,11 @@ public class ArchiveVFS extends VFS {
                     if(next.getName().equals(archive.entryName)) {
                         next = new ZipEntry(archive.entryName);
                         //next.setSize(length);
-                        archiveOut.putNextEntry(next);
+                        archiveOut.putNextEntry(new ZipEntry(next.getName()));
                         copy(outputFile,archiveOut);
                         saved = true;
                     } else {
-                        archiveOut.putNextEntry(next);
+                        archiveOut.putNextEntry(new ZipEntry(next.getName()));
                         copy(archiveIn,archiveOut);
                     }
                     archiveOut.closeEntry();
