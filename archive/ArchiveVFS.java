@@ -204,10 +204,16 @@ public class ArchiveVFS extends VFS {
         // Log.log(Log.DEBUG, this, "2. Archive Path: [" + archivePath + "]");
 
         VFS vfs = VFSManager.getVFSForPath(archivePath);
+        Object archiveSession = vfs.createVFSSession(archivePath, comp);
+        if (archiveSession == null) {
+            Log.log(Log.ERROR, this, "Fail createVFSSession");
+            return;
+        }
 
         try {
             boolean ignoreErrors = true;
-            InputStream in = vfs._createInputStream(session, archivePath, ignoreErrors, comp);
+            // InputStream in = vfs._createInputStream(session, archivePath, ignoreErrors, comp);
+            InputStream in = vfs._createInputStream(archiveSession, archivePath, ignoreErrors, comp);
 
             InputStream archiveIn = this.openArchiveStream(in);
 
@@ -233,6 +239,13 @@ public class ArchiveVFS extends VFS {
             }
         } catch (IOException ioe) {
             Log.log(Log.ERROR, this, ioe);
+        } finally {
+            try {
+                vfs._endVFSSession(archiveSession, comp);
+            } catch (Exception e){
+                Log.log(Log.ERROR, this, e);
+            }
+          
         }
     }
 
@@ -374,21 +387,35 @@ public class ArchiveVFS extends VFS {
         // Log.log(Log.DEBUG, this, "3. _createInputStream Archive Path: [" + archiveEntry + "]");
 
         VFS vfs = VFSManager.getVFSForPath(archivePath);
-
+        
         if (path.endsWith(".marks")) {
             // Markers not supported
             Log.log(Log.DEBUG, this, "Marker Path: [" + path + "]");
 
             return null;
         }
+        
+        Object archiveSession = vfs.createVFSSession(archivePath, comp);
+        if (archiveSession == null) {
+            Log.log(Log.ERROR, this, "Fail createVFSSession");
+            return null;
+        }
 
         try {
-            InputStream in = vfs._createInputStream(session, archivePath, ignoreErrors, comp);
+            // InputStream in = vfs._createInputStream(session, archivePath, ignoreErrors, comp);
+            InputStream in = vfs._createInputStream(archiveSession, archivePath, ignoreErrors, comp);
             InputStream archiveIn = this.openArchiveStream(in);
 
             return createInputStream(archiveIn,archiveEntry);
         } catch (IOException ioe) {
             Log.log(Log.ERROR, this, ioe);
+        } finally {
+            try {
+                vfs._endVFSSession(archiveSession, comp);
+            } catch (Exception e){
+                Log.log(Log.ERROR, this, e);
+            }
+          
         }
 
         return null;
@@ -536,56 +563,69 @@ public class ArchiveVFS extends VFS {
             String archivePath = archive.pathName;
 
             VFS vfs = VFSManager.getVFSForPath(archivePath);
+            Object archiveSession = vfs.createVFSSession(archivePath, comp);
+            if (archiveSession == null) {
+                Log.log(Log.ERROR, this, "Fail createVFSSession");
+                return;
+            }
 
             String savePath = vfs.getTwoStageSaveName(archivePath);
 
             boolean ok = false;
-
-            InputStream archiveIn = null;
             try {
-                archiveIn = vfs._createInputStream(null,
-                    archivePath,false,comp);
-                if(archiveIn == null)
-                    throw new IOException("FIXME");
-
-                archiveIn = ArchiveUtilities.openCompressedStream(archiveIn);
-                boolean gzip = false, bzip2 = false;
-                if(archiveIn instanceof GZIPInputStream)
-                    gzip = true;
-                if(archiveIn instanceof CBZip2InputStream)
-                    bzip2 = true;
-
-                archiveIn = ArchiveUtilities.openArchiveStream(archiveIn);
-
-                if(archiveIn instanceof ZipInputStream) {
-                    saveZipArchive((ZipInputStream)archiveIn,archive,
-                        savePath,outputFile,comp);
-                } else if(archiveIn instanceof TarInputStream) {
-                    saveTarArchive((TarInputStream)archiveIn,archive,
-                        savePath,outputFile,comp,gzip,bzip2);
-                }
-
-                ok = true;
-
-            } catch(IOException e) {
-                Log.log(Log.ERROR,this,e);
-                VFSManager.error(comp,archive.pathName,"ioerror",
-                    new String[] { e.toString() });
-            } finally {
+                InputStream archiveIn = null;
                 try {
-                    if(archiveIn != null)
-                        archiveIn.close();
-                } catch(IOException e) {}
-            }
-
-            if(ok) {
-                try {
-                    vfs._rename(null,savePath,archivePath,comp);
+                    archiveIn = vfs._createInputStream(archiveSession,
+                        archivePath,false,comp);
+                    if(archiveIn == null)
+                        throw new IOException("FIXME");
+                    
+                    archiveIn = ArchiveUtilities.openCompressedStream(archiveIn);
+                    boolean gzip = false, bzip2 = false;
+                    if(archiveIn instanceof GZIPInputStream)
+                        gzip = true;
+                    if(archiveIn instanceof CBZip2InputStream)
+                        bzip2 = true;
+                    
+                    archiveIn = ArchiveUtilities.openArchiveStream(archiveIn);
+                    
+                    if(archiveIn instanceof ZipInputStream) {
+                        saveZipArchive((ZipInputStream)archiveIn,archive,
+                            savePath,outputFile,comp);
+                    } else if(archiveIn instanceof TarInputStream) {
+                        saveTarArchive((TarInputStream)archiveIn,archive,
+                            savePath,outputFile,comp,gzip,bzip2);
+                    }
+                    
+                    ok = true;
+                    
                 } catch(IOException e) {
                     Log.log(Log.ERROR,this,e);
                     VFSManager.error(comp,archive.pathName,"ioerror",
                         new String[] { e.toString() });
+                } finally {
+                    try {
+                        if(archiveIn != null)
+                            archiveIn.close();
+                    } catch(IOException e) {}
                 }
+                
+                if(ok) {
+                    try {
+                        vfs._rename(archiveSession,savePath,archivePath,comp);
+                    } catch(IOException e) {
+                        Log.log(Log.ERROR,this,e);
+                        VFSManager.error(comp,archive.pathName,"ioerror",
+                            new String[] { e.toString() });
+                    }
+                }
+            } finally {
+                try {
+                    vfs._endVFSSession(archiveSession, comp);
+                } catch (Exception e){
+                    Log.log(Log.ERROR, this, e);
+                }
+                
             }
         }
 
@@ -600,12 +640,17 @@ public class ArchiveVFS extends VFS {
             OutputStream out = null;
 
             VFS vfs = VFSManager.getVFSForPath(savePath);
+            Object archiveSession = vfs.createVFSSession(savePath, comp);
+            if (archiveSession == null) {
+                Log.log(Log.ERROR, this, "Fail createVFSSession");
+                return;
+            }
 
             // we need to know the length of ZIP entries in advance.
             long length = new File(outputFile).length();
 
             try {
-                out = vfs._createOutputStream(null,savePath,comp);
+                out = vfs._createOutputStream(archiveSession,savePath,comp);
                 out = new ZipOutputStream(out);
 
                 ZipOutputStream archiveOut = (ZipOutputStream)out;
@@ -644,6 +689,11 @@ public class ArchiveVFS extends VFS {
             } finally {
                 if(out != null)
                     out.close();
+                try {
+                    vfs._endVFSSession(archiveSession, comp);
+                } catch (Exception e){
+                    Log.log(Log.ERROR, this, e);
+                }
             }
         }
 
@@ -659,12 +709,16 @@ public class ArchiveVFS extends VFS {
             OutputStream out = null;
 
             VFS vfs = VFSManager.getVFSForPath(savePath);
+            Object archiveSession = vfs.createVFSSession(savePath, comp);
+            if (archiveSession == null) {
+                Log.log(Log.ERROR, this, "Fail createVFSSession");
+                return;
+            }
 
             // we need to know the length of TAR entries in advance.
             long length = new File(outputFile).length();
-
             try {
-                out = vfs._createOutputStream(null,savePath,comp);
+                out = vfs._createOutputStream(archiveSession,savePath,comp);
 
                 if(gzip)
                     out = new GZIPOutputStream(out);
@@ -708,6 +762,12 @@ public class ArchiveVFS extends VFS {
             } finally {
                 if(out != null)
                     out.close();
+                
+                try {
+                    vfs._endVFSSession(archiveSession, comp);
+                } catch (Exception e){
+                    Log.log(Log.ERROR, this, e);
+                }
             }
         }
 
