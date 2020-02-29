@@ -46,8 +46,10 @@ public class ArchivePlugin extends EBPlugin
             else {
                 tmpFileCount++;
                 long time = System.currentTimeMillis();
-                return MiscUtilities.constructPath(tempDirectory,
+                String path = MiscUtilities.constructPath(tempDirectory,
                     "cache-" + tmpFileCount + "-" + time + ".tmp");
+                (new File(path)).deleteOnExit();
+                return path;
             }
         }
     }
